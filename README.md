@@ -38,7 +38,7 @@ tests/
   test_k8s_rules.py
 ```
 
-## Try it immediately
+## Try running below commands
 
 ```bash
 pip install -r requirements.txt
@@ -86,6 +86,42 @@ hostname with a port number (`registry.example.com:5000/app:2.1.0`)
 correctly NOT being confused with an untagged image, and container-level
 `runAsNonRoot: false` correctly overriding a pod-level `true`.
 
+## Screenshots
+
+### Vulnerable Dockerfile + Kubernetes manifest scan
+![Vulnerable scan](screenshots/vulnerable-scan.png)
+`python scripts/scan_cli.py --dockerfile fixtures/vulnerable.Dockerfile --k8s fixtures/vulnerable-deployment.yaml`
+— 5 Dockerfile findings (no `USER`, `:latest` tag, hardcoded secrets in
+both `ARG` and `ENV`, missing `HEALTHCHECK`) and 7 Kubernetes findings
+(privileged container, `hostNetwork`, `hostPath` mounting the Docker
+socket, missing `runAsNonRoot`, `allowPrivilegeEscalation` not disabled,
+`:latest` image, no resource limits).
+
+### Secure versions — zero false positives
+![Secure scan](screenshots/secure-scan.png)
+Same command against the secure Dockerfile and manifest — 0 findings on
+both, confirming the scanner doesn't fire on correctly-configured
+resources.
+
+### Test suite
+![pytest passing](screenshots/pytest-passing.png)
+`pytest tests/ -v` — all 50 tests passing across both parsers and all
+12 rules.
+
+### Scanned before building — then actually built with Docker
+![Custom Dockerfile scan](screenshots/custom-dockerfile-scan.png)
+Wrote a small standalone Dockerfile from scratch (`FROM node:latest`,
+no `USER`, no `HEALTHCHECK`) and scanned it with this tool before ever
+running `docker build` — catching the `:latest` tag and missing hardening
+steps at the code-review stage, exactly the "shift-left" point of a
+static scanner.
+
+![Docker build succeeding](screenshots/docker-build-real-image.png)
+Then actually built the same Dockerfile with real Docker
+(`docker build -t my-test-image -f my_test.Dockerfile .`) — confirming
+the flagged file was also a genuinely valid, buildable Dockerfile, not
+just syntactically scannable.
+
 ## Testing status
 
 Every single component in this project — both parsers, all 12 rules, the
@@ -96,7 +132,13 @@ cross-checked line-by-line against the findings they should produce (5
 for the vulnerable Dockerfile, 7 for the vulnerable K8s manifest, 0 for
 both secure versions).
 
-## Known limitations
+On top of that, this was tested against a genuinely new Dockerfile
+(written from scratch, not one of the bundled fixtures) and then actually
+built with real Docker — confirming both that the scanner correctly
+flags issues in Dockerfiles it's never seen before, and that the flagged
+file was still a valid, buildable Dockerfile.
+
+## Limitations
 
 - **Kubernetes rules cover pod-spec-level security only** — no checks on
   RBAC (Role/ClusterRole/RoleBinding), NetworkPolicies, PodSecurityPolicy/
